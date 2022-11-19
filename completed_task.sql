@@ -238,7 +238,7 @@ WHERE [s_id] = 5
 
 GO 
 
-DISABLE TRIGGER [account_update] ON [accounts];
+--DISABLE TRIGGER [account_update] ON [accounts];
 
 EXEC [add_sum_by_status] 5
 
@@ -342,16 +342,17 @@ ON [accounts]
 FOR UPDATE
 AS
 BEGIN
-	IF (SELECT [card_sum_balance]
+	IF EXISTS (SELECT [card_sum_balance]
 		FROM [available_money]
-		WHERE [a_id] = (SELECT [a_id]
-						FROM [inserted])) > (SELECT [a_balance]
-											 FROM [inserted])
+			JOIN [inserted] ON [available_money].[a_id] = [inserted].[a_id]
+		WHERE [card_sum_balance] > [inserted].[a_balance])
+		
 	BEGIN
 		ROLLBACK;
 		THROW 51000, N'This sum is too small', 1
 	END;
 END;
+
 
 --check data
 SELECT [a_id], [a_client], [a_balance], SUM([cr_balance]) AS [card_sum_balance]
@@ -360,12 +361,12 @@ FROM [credit_cards]
 GROUP BY [a_id], [a_balance], [a_client];
 
 
-ENABLE TRIGGER [account_update] ON [accounts]
+--ENABLE TRIGGER [account_update] ON [accounts]
 
 BEGIN TRY
 BEGIN TRANSACTION
 	UPDATE [accounts]
-	SET [a_balance] = 20
+	SET [a_balance] = 50
 	WHERE [a_id] = 2
 COMMIT
 END TRY
@@ -380,23 +381,26 @@ ON [credit_cards]
 FOR UPDATE
 AS
 BEGIN
-	IF (SELECT [a_balance]
-		FROM [accounts]
-		WHERE [a_id] = (SELECT [cr_account]
-						FROM [inserted])) < (SELECT [card_sum_balance]
-											 FROM [available_money]
-											 WHERE [a_id] = (SELECT [cr_account]
-															 FROM [inserted]))
+	IF EXISTS (SELECT [a_balance], [card_sum_balance]
+			   FROM [available_money]
+			      JOIN [inserted] ON [available_money].[a_id] = [inserted].[cr_account]
+			   WHERE [a_balance] < [card_sum_balance])
 	BEGIN
 		ROLLBACK;
 		THROW 51000, N'This sum is more than account balance', 1
 	END;
 END;
 
+--check data
+SELECT [a_id], [a_client], [a_balance], SUM([cr_balance]) AS [card_sum_balance]
+FROM [credit_cards]
+	JOIN [accounts] ON [cr_account] = [a_id]
+GROUP BY [a_id], [a_balance], [a_client];
+
 BEGIN TRY
 	BEGIN TRANSACTION
 		UPDATE [credit_cards]
-		SET [cr_balance] = 50
+		SET [cr_balance] = 40
 		WHERE [cr_id] = 2
 	COMMIT
 END TRY
